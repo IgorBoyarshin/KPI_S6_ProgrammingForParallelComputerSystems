@@ -11,8 +11,8 @@
 
 
 // Constants
-const unsigned int N = 8;
-const unsigned int L = 2;
+const unsigned int L = 3;
+const unsigned int N = L * L * 2;
 const unsigned int P = L * L;
 const unsigned int H = N / P;
 const unsigned int STACK_SIZE = 100000000;
@@ -52,7 +52,6 @@ struct Vector {
 
         void* getVoidPtr() {
             return (void*)(elements);
-            // return (void*)(&(*elements));
         }
 };
 
@@ -85,7 +84,6 @@ struct Matrix {
 
         void* getVoidPtr() {
             return (void*)(elements);
-            // return (void*)(&(*elements));
         }
 };
 
@@ -316,7 +314,9 @@ void ThreadFunction(unsigned int row, unsigned int column) {
 //-----------------------------------------------------------------------------
     // 3. Vertical waves
     if (row == 0) {
-        // Send unblocked direct
+        // Send direct
+        MPI_Request request;
+        int* bufferSentDirect;
         {
             const unsigned int sentDirectSizeHs = getReceivedSizeInHs(DIRECT, row + 1, column);
             const unsigned int sentDirectVectorSize = getSizeFromHs(VECTOR, sentDirectSizeHs);
@@ -325,7 +325,7 @@ void ThreadFunction(unsigned int row, unsigned int column) {
                 1 +                    // e
                 sentDirectVectorSize + // C
                 sentDirectMatrixSize;  // MR
-            int* bufferSentDirect = new int[bufferSentDirectSize];
+            bufferSentDirect = new int[bufferSentDirectSize];
 
             bufferSentDirect[0] = e;
             memcpy((void*)(bufferSentDirect + 1),
@@ -335,15 +335,11 @@ void ThreadFunction(unsigned int row, unsigned int column) {
                     (void*)(bufferReceivedDirect + 1 + receivedDirectVectorSize + MR.size),
                     sentDirectMatrixSize * sizeof(int));
 
-            MPI_Request request;
             MPI_Isend(bufferSentDirect, bufferSentDirectSize, MPI_INT, getRank(row + 1, column),
                     0, MPI_COMM_WORLD, &request);
-            MPI_Request_free(&request);
-
-            delete[] bufferSentDirect;
         }
 
-        // Receive blocked reversed
+        // Receive reversed
         {
             MPI_Recv(bufferReceivedReversed, bufferReceivedReversedSize, MPI_INT, getRank(row + 1, column),
                     MPI_ANY_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
@@ -370,12 +366,18 @@ void ThreadFunction(unsigned int row, unsigned int column) {
                     (void*)(currPtr),
                     Z.size * sizeof(int));
         }
+
+        // Cleanup
+        MPI_Wait(&request, MPI_STATUS_IGNORE);
+        delete[] bufferSentDirect;
+//-----------------------------------------------------------------------------
     } else if (row == L - 1) {
-        // Send unblocked reversed
+        // Send reversed
+        MPI_Request request;
+        int* bufferSentReversed;
         {
             const unsigned int sentReversedSizeHs = getReceivedSizeInHs(REVERSED, row - 1, column);
             const unsigned int sentReversedVectorSize = getSizeFromHs(VECTOR, sentReversedSizeHs);
-            // const unsigned int sentReversedMatrixSize = getSizeFromHs(MATRIX, sentReversedSizeHs);
             const unsigned int bufferSentReversedSize =
                 N +                    // S
                 N * N +                // MT
@@ -402,27 +404,11 @@ void ThreadFunction(unsigned int row, unsigned int column) {
                     (void*)(bufferReceivedReversed + N + N * N + 2 * receivedReversedVectorSize + sentToLeftOfVector),
                     sentReversedVectorSize * sizeof(int));
 
-            // if (column == 0) {
-            //     for (int* ptr = bufferReceivedReversed; ptr < bufferReceivedReversed + bufferReceivedReversedSize; ptr++) {
-            //         std::cout << *ptr << " ";
-            //     }
-            //     std::cout << std::endl;
-            // }
-            // int* ptr = bufferReceivedReversed + N + N*N;
-            // std::cout << *(ptr) << std::endl;
-            // std::cout << *(ptr + 1) << std::endl;
-            // std::cout << *(ptr + 2) << std::endl;
-            // std::cout << *(ptr + 3) << std::endl;
-
-            MPI_Request request;
             MPI_Isend(bufferSentReversed, bufferSentReversedSize, MPI_INT, getRank(row - 1, column),
                     0, MPI_COMM_WORLD, &request);
-            MPI_Request_free(&request);
-
-            delete[] bufferSentReversed;
         }
 
-        // Receive blocked direct
+        // Receive direct
         {
             MPI_Recv(bufferReceivedDirect, bufferReceivedDirectSize, MPI_INT, getRank(row - 1, column),
                     MPI_ANY_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
@@ -435,16 +421,157 @@ void ThreadFunction(unsigned int row, unsigned int column) {
                     (void*)(bufferReceivedDirect + 1 + receivedDirectVectorSize),
                     MR.size * sizeof(int));
         }
+
+        // Cleanup
+        MPI_Wait(&request, MPI_STATUS_IGNORE);
+        delete[] bufferSentReversed;
+//-----------------------------------------------------------------------------
     } else {
-        std::cout << "ERR" << std::endl;
-        // Receive unblocked
-        // Send unblocked
+        const unsigned int center = L / 2;
+        unsigned int switchCode;
+        if (row < center) {
+            // Receive direct
+            // Send direct
+            // Receive reversed
+            // Send reversed
+            switchCode = 2031;
+        } else if (row > center) {
+            // Receive reversed
+            // Send reversed
+            // Receive direct
+            // Send direct
+            switchCode = 3120;
+        } else { // == center
+            // Receive reversed
+            // Receive direct
+            // Send reversed
+            // Send direct
+            switchCode  = 3210;
+        }
+
+        for (int switcher = switchCode; switcher > 0; switcher /= 10) {
+            switch (switcher % 10) {
+                case 3: // Send direct
+                    {
+                        const unsigned int sentDirectSizeHs = getReceivedSizeInHs(DIRECT, row + 1, column);
+                        const unsigned int sentDirectVectorSize = getSizeFromHs(VECTOR, sentDirectSizeHs);
+                        const unsigned int sentDirectMatrixSize = getSizeFromHs(MATRIX, sentDirectSizeHs);
+                        const unsigned int bufferSentDirectSize =
+                            1 +                    // e
+                            sentDirectVectorSize + // C
+                            sentDirectMatrixSize;  // MR
+                        int* bufferSentDirect = new int[bufferSentDirectSize];
+
+                        bufferSentDirect[0] = e;
+                        memcpy((void*)(bufferSentDirect + 1),
+                                (void*)(bufferReceivedDirect + 1 + C.size),
+                                sentDirectVectorSize * sizeof(int));
+                        memcpy((void*)(bufferSentDirect + 1 + sentDirectVectorSize),
+                                (void*)(bufferReceivedDirect + 1 + receivedDirectVectorSize + MR.size),
+                                sentDirectMatrixSize * sizeof(int));
+
+                        MPI_Send(bufferSentDirect, bufferSentDirectSize,
+                                MPI_INT, getRank(row + 1, column),
+                                0, MPI_COMM_WORLD);
+
+                        delete[] bufferSentDirect;
+                    }
+                    break;
+//-----------------------------------------------------------------------------
+                case 2: // Send reversed
+                    {
+                        const unsigned int sentReversedSizeHs =
+                            getReceivedSizeInHs(REVERSED, row - 1, column);
+                        const unsigned int sentReversedVectorSize =
+                            getSizeFromHs(VECTOR, sentReversedSizeHs);
+                        const unsigned int bufferSentReversedSize =
+                            N +                    // S
+                            N * N +                // MT
+                            sentReversedVectorSize + // B
+                            sentReversedVectorSize + // X
+                            sentReversedVectorSize;  // Z
+                        int* bufferSentReversed = new int[bufferSentReversedSize];
+
+                        memcpy((void*)(bufferSentReversed),
+                                (void*)(bufferReceivedReversed),
+                                N * sizeof(int));
+                        memcpy((void*)(bufferSentReversed + N),
+                                (void*)(bufferReceivedReversed + N),
+                                N * N * sizeof(int));
+                        memcpy((void*)(bufferSentReversed + N + N * N),
+                                (void*)(bufferReceivedReversed + N + N * N),
+                                sentReversedVectorSize * sizeof(int));
+                        memcpy((void*)(bufferSentReversed + N + N * N + 1 * sentReversedVectorSize),
+                                (void*)(bufferReceivedReversed + N + N * N + 1 * receivedReversedVectorSize),
+                                sentReversedVectorSize * sizeof(int));
+                        memcpy((void*)(bufferSentReversed + N + N * N + 2 * sentReversedVectorSize),
+                                (void*)(bufferReceivedReversed + N + N * N + 2 * receivedReversedVectorSize),
+                                sentReversedVectorSize * sizeof(int));
+
+                        MPI_Send(bufferSentReversed, bufferSentReversedSize,
+                                MPI_INT, getRank(row - 1, column),
+                                0, MPI_COMM_WORLD);
+
+                        delete[] bufferSentReversed;
+                    }
+                    break;
+//-----------------------------------------------------------------------------
+                case 1: // Receive direct
+                    {
+                        MPI_Recv(bufferReceivedDirect, bufferReceivedDirectSize,
+                                MPI_INT, getRank(row - 1, column),
+                                MPI_ANY_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+
+                        e = bufferReceivedDirect[0];
+                        memcpy(C.getVoidPtr(),
+                                (void*)(bufferReceivedDirect + 1),
+                                C.size * sizeof(int));
+                        memcpy(MR.getVoidPtr(),
+                                (void*)(bufferReceivedDirect + 1 + receivedDirectVectorSize),
+                                MR.size * sizeof(int));
+                    }
+                    break;
+//-----------------------------------------------------------------------------
+                case 0: // Receive reversed
+                    {
+                        MPI_Recv(bufferReceivedReversed, bufferReceivedReversedSize,
+                                MPI_INT, getRank(row + 1, column),
+                                MPI_ANY_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+
+                        int* currPtr = bufferReceivedReversed;
+                        memcpy(S.getVoidPtr(),
+                                (void*)(currPtr),
+                                S.size * sizeof(int));
+                        currPtr += S.size;
+                        memcpy(MT.getVoidPtr(),
+                                (void*)(currPtr),
+                                MT.size * sizeof(int));
+                        currPtr += MT.size;
+                        currPtr += receivedReversedVectorSize - H; // cut from the end
+                        memcpy(B.getVoidPtr(),
+                                (void*)(currPtr),
+                                B.size * sizeof(int));
+                        currPtr += receivedReversedVectorSize;
+                        memcpy(X.getVoidPtr(),
+                                (void*)(currPtr),
+                                X.size * sizeof(int));
+                        currPtr += receivedReversedVectorSize;
+                        memcpy(Z.getVoidPtr(),
+                                (void*)(currPtr),
+                                Z.size * sizeof(int));
+                    }
+                    break;
+                default:
+                    break;
+            }
+        }
     }
+//-----------------------------------------------------------------------------
 
     // if (row == L - 1 && column == 0) {
-        // outputMatrix(MR);
         // std::cout << row << ":" << column << ": ";
-        outputVector(B);
+        outputVector(S);
+        // outputMatrix(MR);
     // }
 
     // Data in the received buffers is no longer needed
@@ -452,7 +579,7 @@ void ThreadFunction(unsigned int row, unsigned int column) {
     delete[] bufferReceivedReversed;
 
 
-    // 4. 
+    // 4.
 }
 
 
@@ -489,7 +616,7 @@ int main() {
     ThreadFunction(row, column);
 
     MPI_Finalize();
-    std::cout << ":> Finished " << rank << std::endl;
+    // std::cout << ":> Finished " << rank << std::endl;
 
     return 0;
 
@@ -499,6 +626,12 @@ int main() {
 
 
 
+    // if (row == 2 && column == 3) {
+    //     int counter = 0;
+    //     for (int* buf = bufferReceivedReversed + N + N*N + 0*(4); counter < 32; counter++, buf++) {
+    //         std::cout << *buf << std::endl;
+    //     }
+    // }
 
 
     // Preparations
@@ -510,6 +643,10 @@ int main() {
     // const time_t finish = clock() - start;
     // std::cout << "Elapsed time = " << static_cast<double>(finish) / 1000.0
     //           << std::endl;
+    //
+    //
+    //
+    //
 }
 
 
