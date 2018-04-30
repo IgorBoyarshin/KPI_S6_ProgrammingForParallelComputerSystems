@@ -2,34 +2,31 @@
 // Course Project: MPI
 // Task: A = (B*C) * X + e * S * (MR*MT) - Z
 // Author: Igor Boyarshin
-// Date: 15.04.2018
+// Date: 20.04.2018
 //-----------------------------------------------------------------------------
-
 #include <iostream>
 #include <time.h>
 #include <mpi.h>
-
-
+#include <chrono>
+//-----------------------------------------------------------------------------
 // Constants
-const unsigned int L = 3;
-const unsigned int N = L * L * 2;
-const unsigned int P = L * L;
-const unsigned int H = N / P;
-const unsigned int STACK_SIZE = 100000000;
-const bool DO_PRINT = true;
-const unsigned int ALL_H = P;
-const bool DIRECT = true;
-const bool REVERSED = !DIRECT;
-const bool VECTOR = true;
-const bool MATRIX = !VECTOR;
-
-
+const static unsigned int L = 3;
+const static unsigned int N = 1503; // 1000->999, 1250->1251, 1500->1503
+const static unsigned int P = L * L;
+const static unsigned int H = N / P;
+const static unsigned int STACK_SIZE = 100000000;
+const static unsigned int ALL_H = P;
+const static unsigned int OUTPUT_THRESHOLD = 8;
+const static bool DIRECT = true;
+const static bool REVERSED = !DIRECT;
+const static bool VECTOR = true;
+const static bool MATRIX = !VECTOR;
+//-----------------------------------------------------------------------------
 // Types
 struct Vector {
     public:
         int * elements;
 
-    public:
         const unsigned int hs;
         const unsigned int size;
 
@@ -54,13 +51,11 @@ struct Vector {
             return (void*)(elements);
         }
 };
-
-
+//-----------------------------------------------------------------------------
 struct Matrix {
     public:
         int * elements;
 
-    public:
         const unsigned int hs;
         const unsigned int size;
 
@@ -86,8 +81,7 @@ struct Matrix {
             return (void*)(elements);
         }
 };
-
-
+//-----------------------------------------------------------------------------
 // Functions
 void fillVector(Vector& vector, unsigned int value);
 void fillMatrix(Matrix& matrix, unsigned int value);
@@ -96,16 +90,10 @@ void outputMatrix(const Matrix& matrix);
 unsigned int getReceivedSizeInHs(bool isDirect, unsigned int row, unsigned int column);
 unsigned int getSizeFromHs(bool isVector, unsigned int sizeHs);
 unsigned int getRank(unsigned int row, unsigned int column);
-
-
-// Data
-// int e, d;
-// Vector A, B, C, X, S, Z;
-// Matrix MR, MT;
 //-----------------------------------------------------------------------------
 void ThreadFunction(unsigned int row, unsigned int column) {
     // Data
-    int e;//, d;
+    int e;
     Vector A(1);
     Vector C(1);
     Matrix MR(1);
@@ -120,7 +108,6 @@ void ThreadFunction(unsigned int row, unsigned int column) {
     const unsigned int receivedDirectVectorSize = getSizeFromHs(VECTOR, receivedDirectSizeHs);
     const unsigned int receivedDirectMatrixSize = getSizeFromHs(MATRIX, receivedDirectSizeHs);
     const unsigned int receivedReversedVectorSize = getSizeFromHs(VECTOR, receivedReversedSizeHs);
-    // const unsigned int receivedReversedMatrixSize = getSizeFromHs(MATRIX, receivedReversedSizeHs);
     const unsigned int bufferReceivedDirectSize =
         1 +                        // e
         receivedDirectVectorSize + // C
@@ -133,7 +120,6 @@ void ThreadFunction(unsigned int row, unsigned int column) {
         receivedReversedVectorSize;  // Z
     int* bufferReceivedDirect = new int[bufferReceivedDirectSize];
     int* bufferReceivedReversed = new int[bufferReceivedReversedSize];
-
 //-----------------------------------------------------------------------------
     // 1. Input
     if (row == 0 && column == 0) {
@@ -151,8 +137,10 @@ void ThreadFunction(unsigned int row, unsigned int column) {
         memcpy(MR.getVoidPtr(), MR_in.getVoidPtr(), H * N * sizeof(int));
 
         bufferReceivedDirect[0] = e_in;
-        memcpy((void*) (bufferReceivedDirect + 1), C_in.getVoidPtr(), N * sizeof(int));
-        memcpy((void*) (bufferReceivedDirect + 1 + C_in.size), MR_in.getVoidPtr(), N * N * sizeof(int));
+        memcpy((void*) (bufferReceivedDirect + 1),
+                C_in.getVoidPtr(), N * sizeof(int));
+        memcpy((void*) (bufferReceivedDirect + 1 + C_in.size),
+                MR_in.getVoidPtr(), N * N * sizeof(int));
     } else if (row == L - 1 && column == L - 1) {
         Vector S_in(ALL_H);
         Matrix MT_in(ALL_H);
@@ -189,13 +177,13 @@ void ThreadFunction(unsigned int row, unsigned int column) {
                 (bufferReceivedReversed + S_in.size + MT_in.size + B_in.size + X_in.size),
                 Z_in.getVoidPtr(), N * sizeof(int));
     }
-
 //-----------------------------------------------------------------------------
     // 2. Horizontal waves
     if (row == 0) {
         // Receive
         if (column >= 1 && column <= L - 1) {
-            MPI_Recv(bufferReceivedDirect, bufferReceivedDirectSize, MPI_INT, getRank(row, column - 1),
+            MPI_Recv(bufferReceivedDirect, bufferReceivedDirectSize,
+                    MPI_INT, getRank(row, column - 1),
                     MPI_ANY_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
             e = bufferReceivedDirect[0];
@@ -209,7 +197,8 @@ void ThreadFunction(unsigned int row, unsigned int column) {
 
         // Send
         if (column >= 0 && column <= L - 2) {
-            const unsigned int sentDirectHorSizeHs = getReceivedSizeInHs(DIRECT, row, column + 1);
+            const unsigned int sentDirectHorSizeHs =
+                getReceivedSizeInHs(DIRECT, row, column + 1);
             const unsigned int bufferSentDirectHorSize =
                 1 +
                 getSizeFromHs(VECTOR, sentDirectHorSizeHs) + // C
@@ -310,7 +299,6 @@ void ThreadFunction(unsigned int row, unsigned int column) {
             delete[] bufferSentReversedHor;
         }
     }
-
 //-----------------------------------------------------------------------------
     // 3. Vertical waves
     if (row == 0) {
@@ -341,7 +329,8 @@ void ThreadFunction(unsigned int row, unsigned int column) {
 
         // Receive reversed
         {
-            MPI_Recv(bufferReceivedReversed, bufferReceivedReversedSize, MPI_INT, getRank(row + 1, column),
+            MPI_Recv(bufferReceivedReversed, bufferReceivedReversedSize,
+                    MPI_INT, getRank(row + 1, column),
                     MPI_ANY_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
             int* currPtr = bufferReceivedReversed;
@@ -376,8 +365,10 @@ void ThreadFunction(unsigned int row, unsigned int column) {
         MPI_Request request;
         int* bufferSentReversed;
         {
-            const unsigned int sentReversedSizeHs = getReceivedSizeInHs(REVERSED, row - 1, column);
-            const unsigned int sentReversedVectorSize = getSizeFromHs(VECTOR, sentReversedSizeHs);
+            const unsigned int sentReversedSizeHs =
+                getReceivedSizeInHs(REVERSED, row - 1, column);
+            const unsigned int sentReversedVectorSize =
+                getSizeFromHs(VECTOR, sentReversedSizeHs);
             const unsigned int bufferSentReversedSize =
                 N +                    // S
                 N * N +                // MT
@@ -410,7 +401,8 @@ void ThreadFunction(unsigned int row, unsigned int column) {
 
         // Receive direct
         {
-            MPI_Recv(bufferReceivedDirect, bufferReceivedDirectSize, MPI_INT, getRank(row - 1, column),
+            MPI_Recv(bufferReceivedDirect, bufferReceivedDirectSize,
+                    MPI_INT, getRank(row - 1, column),
                     MPI_ANY_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
             e = bufferReceivedDirect[0];
@@ -430,22 +422,22 @@ void ThreadFunction(unsigned int row, unsigned int column) {
         const unsigned int center = L / 2;
         unsigned int switchCode;
         if (row < center) {
-            // Receive direct
-            // Send direct
-            // Receive reversed
-            // Send reversed
+            // Receive direct = 1
+            // Send direct = 3
+            // Receive reversed = 0
+            // Send reversed = 2
             switchCode = 2031;
         } else if (row > center) {
-            // Receive reversed
-            // Send reversed
-            // Receive direct
-            // Send direct
+            // Receive reversed = 0
+            // Send reversed = 3
+            // Receive direct = 1
+            // Send direct = 3
             switchCode = 3120;
         } else { // == center
-            // Receive reversed
-            // Receive direct
-            // Send reversed
-            // Send direct
+            // Receive reversed = 0
+            // Receive direct = 1
+            // Send reversed = 2
+            // Send direct = 3
             switchCode  = 3210;
         }
 
@@ -566,40 +558,154 @@ void ThreadFunction(unsigned int row, unsigned int column) {
             }
         }
     }
-//-----------------------------------------------------------------------------
 
-    // if (row == L - 1 && column == 0) {
-        // std::cout << row << ":" << column << ": ";
-        outputVector(S);
-        // outputMatrix(MR);
-    // }
-
-    // Data in the received buffers is no longer needed
+    // Data in the receiving buffers is no longer needed
     delete[] bufferReceivedDirect;
     delete[] bufferReceivedReversed;
-
-
-    // 4.
-}
-
-
-
-            // MPI_Request request;
-            // MPI_Send(buffer, totalSize, MPI_INT, getRank(row, column + 1),
-            //         0, MPI_COMM_WORLD, &request);
-            // MPI_Request_free(&request);
-            //
-            //
-    //     MPI_Isend(a.getPrt(), H, MPI_INT, getRank(1, 1), 0, MPI_COMM_WORLD, &request);
-    // } else if (row <= 1 && column <= 1){
-    //     MPI_Recv(a.getPrt(), H, MPI_INT, getRank(0, 0), MPI_ANY_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-
-
-
+//-----------------------------------------------------------------------------
+    // 4. d
+    int d = 0;
+    for (unsigned int i = 0; i < H; i++) {
+        d += B[i] * C[i];
+    }
 
 //-----------------------------------------------------------------------------
+    // 5. down wave for d
+    // Receive
+    if (row <= L-2) {
+        int d_other;
+        MPI_Recv(&d_other, 1,
+                MPI_INT, getRank(row + 1, column),
+                MPI_ANY_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        d += d_other;
+    }
 
+    // Send
+    if (row >= 1) {
+        MPI_Send(&d, 1,
+                MPI_INT, getRank(row - 1, column),
+                0, MPI_COMM_WORLD);
+    }
+//-----------------------------------------------------------------------------
+    // 6. left wave for d
+    // Receive
+    if (row == 0 && column <= L-2) {
+        int d_other;
+        MPI_Recv(&d_other, 1,
+                MPI_INT, getRank(row, column + 1),
+                MPI_ANY_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        d += d_other;
+    }
 
+    // Send
+    if (row == 0 && column >= 1) {
+        MPI_Send(&d, 1,
+                MPI_INT, getRank(row, column - 1),
+                0, MPI_COMM_WORLD);
+    }
+//-----------------------------------------------------------------------------
+    // 7. right wave for d
+    // Receive
+    if (row == 0 && column >= 1) {
+        int d_new;
+        MPI_Recv(&d_new, 1,
+                MPI_INT, getRank(row, column - 1),
+                MPI_ANY_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        d = d_new;
+    }
+
+    // Send
+    if (row == 0 && column <= L - 2) {
+        MPI_Send(&d, 1,
+                MPI_INT, getRank(row, column + 1),
+                0, MPI_COMM_WORLD);
+    }
+//-----------------------------------------------------------------------------
+    // 8. up wave for d
+    // Receive
+    if (row >= 1) {
+        int d_new;
+        MPI_Recv(&d_new, 1,
+                MPI_INT, getRank(row - 1, column),
+                MPI_ANY_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        d = d_new;
+    }
+
+    // Send
+    if (row <= L - 2) {
+        MPI_Send(&d, 1,
+                MPI_INT, getRank(row + 1, column),
+                0, MPI_COMM_WORLD);
+    }
+//-----------------------------------------------------------------------------
+    // 9. Calculations
+    for (unsigned int h = 0; h < H; h++) {
+        int elem = 0;
+        for (unsigned int i = 0; i < N; i++) { // cols 2
+            int temp = 0;
+            for (unsigned int j = 0; j < N; j++) { // elem
+                temp += MR[h*N + j] * MT[j*N + i];
+            }
+            elem += temp * S[i];
+        }
+        A[h] = d * X[h] + e * elem - Z[h];
+    }
+//-----------------------------------------------------------------------------
+    // 10. A down
+    const unsigned int bufferSize = H * getReceivedSizeInHs(DIRECT, row, column);
+    int* buffer = new int[bufferSize];
+    {
+        // Put self into buffer at the beginning
+        memcpy((void*) buffer, A.getVoidPtr(), A.size * sizeof(int));
+
+        // Receive
+        if (row <= L - 2) {
+            const unsigned int size = H * getReceivedSizeInHs(DIRECT, row + 1, column);
+            MPI_Recv(buffer + A.size, size,
+                    MPI_INT, getRank(row + 1, column),
+                    MPI_ANY_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        }
+
+        // Send
+        if (row >= 1) {
+            MPI_Send(buffer, bufferSize,
+                    MPI_INT, getRank(row - 1, column),
+                    0, MPI_COMM_WORLD);
+        }
+    }
+//-----------------------------------------------------------------------------
+    // 11. A left
+    if (row == 0) {
+        // Receive
+        if (column <= L - 2) {
+            const unsigned int size = H * getReceivedSizeInHs(DIRECT, row, column + 1);
+            MPI_Recv(buffer + L * H, size,
+                    MPI_INT, getRank(row, column + 1),
+                    MPI_ANY_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        }
+
+        // Send
+        if (column >= 1) {
+            MPI_Send(buffer, bufferSize,
+                    MPI_INT, getRank(row, column - 1),
+                    0, MPI_COMM_WORLD);
+        }
+    }
+//-----------------------------------------------------------------------------
+    // 12. Output
+
+    if (row == 0 && column == 0) {
+        if (N <= OUTPUT_THRESHOLD) {
+            for (int* buf = buffer; buf < buffer + bufferSize; buf++) {
+                std::cout << *buf << " ";
+            }
+            std::cout << std::endl;
+        }
+    }
+
+    delete[] buffer;
+}
+//-----------------------------------------------------------------------------
 int main() {
     int size, rank;
     MPI_Init(0, 0);
@@ -613,63 +719,33 @@ int main() {
         std::cout << ":> Started" << std::endl;
     }
 
+    const auto start = std::chrono::steady_clock::now();
     ThreadFunction(row, column);
+    if (row == 0 && column == 0) {
+        const auto delta = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                std::chrono::steady_clock::now() - start
+                            ).count();
+        std::cout << "Elapsed time = " << delta / 1000.0 << "s"
+                  << std::endl;
+    }
 
     MPI_Finalize();
     // std::cout << ":> Finished " << rank << std::endl;
 
     return 0;
-
-
-
-
-
-
-
-    // if (row == 2 && column == 3) {
-    //     int counter = 0;
-    //     for (int* buf = bufferReceivedReversed + N + N*N + 0*(4); counter < 32; counter++, buf++) {
-    //         std::cout << *buf << std::endl;
-    //     }
-    // }
-
-
-    // Preparations
-    // fillVector(A, 0);
-
-
-    // const time_t start = clock();
-    //
-    // const time_t finish = clock() - start;
-    // std::cout << "Elapsed time = " << static_cast<double>(finish) / 1000.0
-    //           << std::endl;
-    //
-    //
-    //
-    //
 }
-
-
 //-----------------------------------------------------------------------------
 // Function definitions
 void fillVector(Vector& vector, unsigned int value) {
     for (unsigned int i = 0; i < vector.size; i++) {
-        // vector[i] = value;
-        vector[i] = i;
+        vector[i] = value;
     }
 }
 
 void fillMatrix(Matrix& matrix, unsigned int value) {
     for (unsigned int i = 0; i < matrix.size; i++) {
-        // matrix[i] = value;
-        matrix[i] = i;
+        matrix[i] = value;
     }
-
-    // for (unsigned int i = 0; i < matrix.hs * N; i++) {
-    //     for (unsigned int j = 0; j < N; j++) {
-    //         matrix[i * N + j] = value;
-    //     }
-    // }
 }
 
 void outputVector(const Vector& vector) {
@@ -712,230 +788,3 @@ unsigned int getSizeFromHs(bool isVector, unsigned int sizeHs) {
 unsigned int getRank(unsigned int row, unsigned int column) {
     return row * L + column;
 }
-
-
-
-// Threads
-// void ThreadFunction() {
-//     const unsigned int tid = (static_cast<Pointer>(arguments))->tid;
-//     const unsigned int low = (tid - 1) * H;
-//     const unsigned int high = tid * H;
-//
-//     if (DO_PRINT) {
-//         std::cout << "Thread " << tid << " started..." << std::endl;
-//     }
-//
-//     // Input
-//     switch (tid) {
-//         case 1:
-//             e = 1;
-//             fillVector(C, 1);
-//             fillMatrix(MR, 1);
-//             break;
-//         case P:
-//             fillVector(B, 1);
-//             fillVector(S, 1);
-//             fillVector(X, 1);
-//             fillMatrix(MT, 1);
-//             fillVector(Z, 1);
-//             break;
-//         default:
-//             break;
-//     }
-//
-//     // Synchronization on input
-//     switch (tid) {
-//         case 1:
-//             SetEvent(Event_InputFinishIn1);
-//             WaitForSingleObject(Event_InputFinishInP, INFINITE);
-//             break;
-//         case P:
-//             SetEvent(Event_InputFinishInP);
-//             WaitForSingleObject(Event_InputFinishIn1, INFINITE);
-//             break;
-//         default:
-//             WaitForSingleObject(Event_InputFinishIn1, INFINITE);
-//             WaitForSingleObject(Event_InputFinishInP, INFINITE);
-//     }
-//
-//     // Calculation1
-//     int di = 0;
-//     for (unsigned int i = low; i < high; i++) {
-//         di += B[i] * C[i];
-//     }
-//
-//     // Update common d
-//     EnterCriticalSection(&CriticalSection_UpdateD);
-//     d += di;
-//     LeaveCriticalSection(&CriticalSection_UpdateD);
-//
-//     // Signal about the end of Calculations1
-//     ReleaseSemaphore(Semaphores_Calculation1EndIn[tid - 1], P, NULL);
-//
-//     // Copy1
-//     WaitForSingleObject(Mutex_CopyE, INFINITE);
-//     const int ei = e;
-//     ReleaseMutex(Mutex_CopyE);
-//
-//     WaitForSingleObject(Mutex_CopyS, INFINITE);
-//     const Vector Si = S.copy();
-//     ReleaseMutex(Mutex_CopyS);
-//
-//     WaitForSingleObject(Semaphore_CopyMt, INFINITE);
-//     const Matrix MTi = MT.copy();
-//     ReleaseSemaphore(Semaphore_CopyMt, 1, NULL);
-//
-//     // Wait for the end of Calculations1 in other threads
-//     for (unsigned int i = 0; i < P; i++) {
-//         WaitForSingleObject(Semaphores_Calculation1EndIn[i], INFINITE);
-//     }
-//
-//     // Copy d
-//     EnterCriticalSection(&CriticalSection_CopyD);
-//     di = d;
-//     LeaveCriticalSection(&CriticalSection_CopyD);
-//
-//     // Calculations2
-//     for (unsigned int h = low; h < high; h++) {
-//         const Vector& row = MR[h];
-//         int elem = 0;
-//         for (unsigned int i = 0; i < N; i++) { // cols 2
-//             int temp = 0;
-//             for (unsigned int j = 0; j < N; j++) { // elem
-//                 temp += row[j] * MTi[j][i];
-//             }
-//             elem += temp * Si[i];
-//         }
-//         A[h] = di * X[h] + ei * elem - Z[h];
-//     }
-//
-//     // Synchronization of Calculation2 end
-//     switch (tid) {
-//         case 1:
-//             for (unsigned int i = 0; i < P - 1; i++) {
-//                 WaitForSingleObject(Event_Calculation2EndIn[i], INFINITE);
-//             }
-//             break;
-//         default:
-//             // -2: one for zero-based, one for T1 not being accounter for here
-//             SetEvent(Event_Calculation2EndIn[tid - 2]);
-//     }
-//
-//     if (tid == 1) {
-//         // Output A
-//         if (N <= 8) {
-//             outputVector(A);
-//         }
-//     }
-//
-//     if (DO_PRINT) {
-//         std::cout << "Thread " << tid << " finished." << std::endl;
-//     }
-// };
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-    // const int nodes = L * L;
-    // int neigh[nodes];
-    // int indices[nodes];
-    // int edges[2*4+3*4+2];
-    //
-    // neigh[getRank(0,0)] = 2;
-    // neigh[getRank(0,1)] = 3;
-    // neigh[getRank(0,2)] = 2;
-    // neigh[getRank(1,0)] = 3;
-    // neigh[getRank(1,1)] = 4;
-    // neigh[getRank(1,2)] = 2;
-    // neigh[getRank(2,0)] = 2;
-    // neigh[getRank(2,1)] = 2;
-    // neigh[getRank(2,2)] = 0;
-    //
-    // indices[0] = neigh[0];
-    // for (unsigned int i = 1; i < nodes; i++) {
-    //     indices[i] = indices[i-1] + neigh[i];
-    // }
-    //
-    // for (unsigned int row = 0; row < L; row++) {
-    //     for (unsigned int column = 0; column < L; column++) {
-    //         unsigned int ed = 0;
-    //         if (row > 0) {
-    //             if (!(row == 2 && column == 2))
-    //             edges[ed++] = getRank(row - 1, column);
-    //         }
-    //         if (row < L - 1) {
-    //             if (!(row == 1 && column == 2))
-    //             edges[ed++] = getRank(row + 1, column);
-    //         }
-    //         if (column > 0) {
-    //             if (!(row == 2 && column == 2))
-    //             edges[ed++] = getRank(row, column - 1);
-    //         }
-    //         if (column < L - 1) {
-    //             if (!(row == 2 && column == 1))
-    //             edges[ed++] = getRank(row, column + 1);
-    //         }
-    //     }
-    // }
-    //
-    //
-    // MPI_Comm commun;
-    // MPI_Graph_create(MPI_COMM_WORLD, nodes, indices, edges, false, &commun);
-    //
-    // Vector a(ALL_H);
-    // if (row == 0 && column == 0) {
-    //     fillVector(a, 2);
-    //     MPI_Request request;
-    //     MPI_Isend(a.getPrt(), N, MPI_INT, getRank(2, 2), 0, commun, &request);
-    // } else if (row == 2 && column == 2) {
-    //     MPI_Recv(a.getPrt(), N, MPI_INT, getRank(0, 0), MPI_ANY_TAG, commun, MPI_STATUS_IGNORE);
-    //     a[0] = 0;
-    //     outputVector(a);
-    // }
-    //
-    //
-    //
-    //
-    //
-    //
-    //
-    //
-    //
-    //
-    //
-    //
-    //
-    // Vector a(1);
-    // if (row == 0 && column == 0) {
-    //     fillVector(a, 2);
-    //
-    //     MPI_Request request;
-    //     MPI_Isend(a.getPrt(), H, MPI_INT, getRank(0, 1), 0, MPI_COMM_WORLD, &request);
-    //     MPI_Isend(a.getPrt(), H, MPI_INT, getRank(1, 0), 0, MPI_COMM_WORLD, &request);
-    //     MPI_Isend(a.getPrt(), H, MPI_INT, getRank(1, 1), 0, MPI_COMM_WORLD, &request);
-    // } else if (row <= 1 && column <= 1){
-    //     MPI_Recv(a.getPrt(), H, MPI_INT, getRank(0, 0), MPI_ANY_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-    //
-    //     a[0] += getRank(row, column);
-    //
-    //     outputVector(a);
-    // }
