@@ -11,7 +11,7 @@
 //-----------------------------------------------------------------------------
 // Constants
 const static unsigned int L = 3;
-const static unsigned int N = 1503; // 1000->999, 1250->1251, 1500->1503
+const static unsigned int N = 999; // 1000->999, 1250->1251, 1500->1503
 const static unsigned int P = L * L;
 const static unsigned int H = N / P;
 const static unsigned int STACK_SIZE = 100000000;

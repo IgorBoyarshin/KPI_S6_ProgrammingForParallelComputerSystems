@@ -9,7 +9,7 @@ use Ada.Text_IO, Ada.Integer_Text_IO, Ada.Synchronous_Task_Control, System.Multi
 
 procedure Main
 is
-    N: constant := 16;
+    N: constant := 8;
     P: constant := 8;
     H: constant := N / P;
     Memory: constant := 5000000;
@@ -17,6 +17,42 @@ is
 
     package My_Data is new Data(N, H);
     use My_Data;
+
+    procedure Prepare_B(B: access Vector_N; B_buff: access Vector_N) is
+    begin
+        B(0*H + 1..1*H) := B_buff(0*H + 1..1*H);
+        B(1*H + 1..2*H) := B_buff(4*H + 1..5*H);
+        B(2*H + 1..3*H) := B_buff(2*H + 1..3*H);
+        B(3*H + 1..4*H) := B_buff(6*H + 1..7*H);
+        B(4*H + 1..5*H) := B_buff(1*H + 1..2*H);
+        B(5*H + 1..6*H) := B_buff(5*H + 1..6*H);
+        B(6*H + 1..7*H) := B_buff(3*H + 1..4*H);
+        B(7*H + 1..8*H) := B_buff(7*H + 1..8*H);
+    end Prepare_B;
+
+    procedure Prepare_MO(MO: access Matrix_N; MO_buff: access Matrix_N) is
+    begin
+        MO(0*H + 1..1*H) := MO_buff(3*H + 1..4*H);
+        MO(1*H + 1..2*H) := MO_buff(7*H + 1..8*H);
+        MO(2*H + 1..3*H) := MO_buff(1*H + 1..2*H);
+        MO(3*H + 1..4*H) := MO_buff(5*H + 1..6*H);
+        MO(4*H + 1..5*H) := MO_buff(2*H + 1..3*H);
+        MO(5*H + 1..6*H) := MO_buff(6*H + 1..7*H);
+        MO(6*H + 1..7*H) := MO_buff(0*H + 1..1*H);
+        MO(7*H + 1..8*H) := MO_buff(4*H + 1..5*H);
+    end Prepare_MO;
+
+    procedure Prepare_Z(Z: access Vector_N; Z_buff: access Vector_N) is
+    begin
+        Z(0*H + 1..1*H) := Z_buff(7*H + 1..8*H);
+        Z(1*H + 1..2*H) := Z_buff(3*H + 1..4*H);
+        Z(2*H + 1..3*H) := Z_buff(5*H + 1..6*H);
+        Z(3*H + 1..4*H) := Z_buff(1*H + 1..2*H);
+        Z(4*H + 1..5*H) := Z_buff(6*H + 1..7*H);
+        Z(5*H + 1..6*H) := Z_buff(2*H + 1..3*H);
+        Z(6*H + 1..7*H) := Z_buff(4*H + 1..5*H);
+        Z(7*H + 1..8*H) := Z_buff(0*H + 1..1*H);
+    end Prepare_Z;
 -------------------------------------------------------------------------------
     procedure Tasks_Start is
         -- Tasks specification
@@ -102,7 +138,9 @@ is
 -------------------------------------------------------------------------------
         task body T1
         is
-            A, B: access Vector_N := new Vector_N;
+            A: access Vector_N := new Vector_N;
+            B: access Vector_N := new Vector_N;
+            B_buff: access Vector_N := new Vector_N;
             MK: access Matrix_N := new Matrix_N;
 
             d, x: Integer;
@@ -112,7 +150,8 @@ is
         begin
             Put_Line(":> Starting Task 1...");
 
-            Fill_Vector_Ones(B);
+            Fill_Vector_Ones(B_buff);
+            Prepare_B(B, B_Buff);
             Fill_Matrix_Ones(MK);
 
             T2.Set1(B.all(4*H+1..8*H), MK.all);
@@ -286,13 +325,15 @@ is
             Z: access Vector_H := new Vector_H;
             E: access Vector_N := new Vector_N;
             MO: access Matrix_N := new Matrix_N;
+            MO_buff: access Matrix_N := new Matrix_N;
             MK: access Matrix_N := new Matrix_N;
             x: Integer;
         begin
             Put_Line(":> Starting Task 4...");
 
             d := 1;
-            Fill_Matrix_Ones(MO);
+            Fill_Matrix_Ones(MO_buff);
+            Prepare_MO(MO, MO_Buff);
 
             T3.Set4(d, MO.all(4*H+1..8*H));
             T2.Set4(d, MO.all(2*H+1..4*H));
@@ -491,6 +532,7 @@ is
             B: access Vector_H := new Vector_H;
             d: Integer;
             Z: access Vector_N := new Vector_N;
+            Z_buff: access Vector_N := new Vector_N;
             E: access Vector_N := new Vector_N;
             MO: access Matrix_H := new Matrix_H;
             MK: access Matrix_N := new Matrix_N;
@@ -498,7 +540,8 @@ is
         begin
             Put_Line(":> Starting Task 8...");
 
-            Fill_Vector_Ones(Z);
+            Fill_Vector_Ones(Z_buff);
+            Prepare_Z(Z, Z_buff);
             Fill_Vector_Ones(E);
 
             T7.Set8(Z.all(4*H+1..8*H), E.all);
