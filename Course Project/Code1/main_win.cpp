@@ -11,8 +11,8 @@
 
 
 // Constants
-const unsigned int N = 2000;
-const unsigned int P = 4;
+const unsigned int N = 600;
+const unsigned int P = 6;
 const unsigned int H = N / P;
 const unsigned int STACK_SIZE = 100000000;
 const bool DO_PRINT = true;

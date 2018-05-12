@@ -5,18 +5,18 @@
 // Date: 20.04.2018
 //-----------------------------------------------------------------------------
 #include <iostream>
-#include <time.h>
 #include <mpi.h>
 #include <chrono>
 //-----------------------------------------------------------------------------
 // Constants
-const static unsigned int L = 3;
-const static unsigned int N = 999; // 1000->999, 1250->1251, 1500->1503
-const static unsigned int P = L * L;
+const static unsigned int LW = 2;
+const static unsigned int LH = 2;
+const static unsigned int N = 900;
+const static unsigned int P = LW * LH;
 const static unsigned int H = N / P;
 const static unsigned int STACK_SIZE = 100000000;
 const static unsigned int ALL_H = P;
-const static unsigned int OUTPUT_THRESHOLD = 8;
+const static unsigned int OUTPUT_THRESHOLD = 12;
 const static bool DIRECT = true;
 const static bool REVERSED = !DIRECT;
 const static bool VECTOR = true;
@@ -141,7 +141,7 @@ void ThreadFunction(unsigned int row, unsigned int column) {
                 C_in.getVoidPtr(), N * sizeof(int));
         memcpy((void*) (bufferReceivedDirect + 1 + C_in.size),
                 MR_in.getVoidPtr(), N * N * sizeof(int));
-    } else if (row == L - 1 && column == L - 1) {
+    } else if (row == LH - 1 && column == LW - 1) {
         Vector S_in(ALL_H);
         Matrix MT_in(ALL_H);
         Vector B_in(ALL_H);
@@ -181,7 +181,7 @@ void ThreadFunction(unsigned int row, unsigned int column) {
     // 2. Horizontal waves
     if (row == 0) {
         // Receive
-        if (column >= 1 && column <= L - 1) {
+        if (column >= 1 && column <= LW - 1) {
             MPI_Recv(bufferReceivedDirect, bufferReceivedDirectSize,
                     MPI_INT, getRank(row, column - 1),
                     MPI_ANY_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
@@ -196,7 +196,7 @@ void ThreadFunction(unsigned int row, unsigned int column) {
         }
 
         // Send
-        if (column >= 0 && column <= L - 2) {
+        if (column >= 0 && column <= LW - 2) {
             const unsigned int sentDirectHorSizeHs =
                 getReceivedSizeInHs(DIRECT, row, column + 1);
             const unsigned int bufferSentDirectHorSize =
@@ -212,21 +212,23 @@ void ThreadFunction(unsigned int row, unsigned int column) {
 
             bufferSentDirectHor[0] = e;
             memcpy((void*)(bufferSentDirectHor + 1),
-                    (void*)(bufferReceivedDirect + 1 + L * C.size),
+                    (void*)(bufferReceivedDirect + 1 + LH * C.size),
                     sentDirectHorVectorSize * sizeof(int));
             memcpy((void*)(bufferSentDirectHor + 1 + sentDirectHorVectorSize),
-                    (void*)(bufferReceivedDirect + 1 + receivedDirectVectorSize + L * MR.size),
+                    (void*)(bufferReceivedDirect + 1 + receivedDirectVectorSize + LH * MR.size),
                     sentDirectHorMatrixSize * sizeof(int));
 
-            MPI_Send(bufferSentDirectHor, bufferSentDirectHorSize, MPI_INT, getRank(row, column + 1),
+            MPI_Send(bufferSentDirectHor, bufferSentDirectHorSize,
+                    MPI_INT, getRank(row, column + 1),
                     0, MPI_COMM_WORLD);
 
             delete[] bufferSentDirectHor;
         }
-    } else if (row == L - 1) {
+    } else if (row == LH - 1) {
         // Receive
-        if (0 <= column && column <= L - 2) {
-            MPI_Recv(bufferReceivedReversed, bufferReceivedReversedSize, MPI_INT, getRank(row, column + 1),
+        if (0 <= column && column <= LW - 2) {
+            MPI_Recv(bufferReceivedReversed, bufferReceivedReversedSize,
+                    MPI_INT, getRank(row, column + 1),
                     MPI_ANY_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
             int* currPtr = bufferReceivedReversed;
@@ -253,8 +255,9 @@ void ThreadFunction(unsigned int row, unsigned int column) {
         }
 
         // Send
-        if (1 <= column && column <= L - 1) {
-            const unsigned int sentReversedHorSizeHs = getReceivedSizeInHs(REVERSED, row, column - 1);
+        if (1 <= column && column <= LW - 1) {
+            const unsigned int sentReversedHorSizeHs =
+                getReceivedSizeInHs(REVERSED, row, column - 1);
             const unsigned int bufferSentReversedHorSize =
                 N +                                            // S
                 N * N +                                        // MT
@@ -293,7 +296,8 @@ void ThreadFunction(unsigned int row, unsigned int column) {
                     (void*)(currPtrSrc),
                     sentReversedHorVectorSize * sizeof(int));
 
-            MPI_Send(bufferSentReversedHor, bufferSentReversedHorSize, MPI_INT, getRank(row, column - 1),
+            MPI_Send(bufferSentReversedHor, bufferSentReversedHorSize,
+                    MPI_INT, getRank(row, column - 1),
                     0, MPI_COMM_WORLD);
 
             delete[] bufferSentReversedHor;
@@ -323,7 +327,8 @@ void ThreadFunction(unsigned int row, unsigned int column) {
                     (void*)(bufferReceivedDirect + 1 + receivedDirectVectorSize + MR.size),
                     sentDirectMatrixSize * sizeof(int));
 
-            MPI_Isend(bufferSentDirect, bufferSentDirectSize, MPI_INT, getRank(row + 1, column),
+            MPI_Isend(bufferSentDirect, bufferSentDirectSize,
+                    MPI_INT, getRank(row + 1, column),
                     0, MPI_COMM_WORLD, &request);
         }
 
@@ -360,7 +365,7 @@ void ThreadFunction(unsigned int row, unsigned int column) {
         MPI_Wait(&request, MPI_STATUS_IGNORE);
         delete[] bufferSentDirect;
 //-----------------------------------------------------------------------------
-    } else if (row == L - 1) {
+    } else if (row == LH - 1) {
         // Send reversed
         MPI_Request request;
         int* bufferSentReversed;
@@ -375,7 +380,7 @@ void ThreadFunction(unsigned int row, unsigned int column) {
                 sentReversedVectorSize + // B
                 sentReversedVectorSize + // X
                 sentReversedVectorSize;  // Z
-            int* bufferSentReversed = new int[bufferSentReversedSize];
+            bufferSentReversed = new int[bufferSentReversedSize];
 
             const unsigned int sentToLeftOfVector =
                 column == 0 ? 0 : H * getReceivedSizeInHs(REVERSED, row, column - 1);
@@ -388,14 +393,19 @@ void ThreadFunction(unsigned int row, unsigned int column) {
             memcpy((void*)(bufferSentReversed + N + N * N),
                     (void*)(bufferReceivedReversed + N + N * N + sentToLeftOfVector),
                     sentReversedVectorSize * sizeof(int));
-            memcpy((void*)(bufferSentReversed + N + N * N + 1 * sentReversedVectorSize),
-                    (void*)(bufferReceivedReversed + N + N * N + 1 * receivedReversedVectorSize + sentToLeftOfVector),
+            memcpy((void*)(bufferSentReversed + N + N * N +
+                        1 * sentReversedVectorSize),
+                    (void*)(bufferReceivedReversed + N + N * N +
+                        1 * receivedReversedVectorSize + sentToLeftOfVector),
                     sentReversedVectorSize * sizeof(int));
-            memcpy((void*)(bufferSentReversed + N + N * N + 2 * sentReversedVectorSize),
-                    (void*)(bufferReceivedReversed + N + N * N + 2 * receivedReversedVectorSize + sentToLeftOfVector),
+            memcpy((void*)(bufferSentReversed + N + N * N +
+                        2 * sentReversedVectorSize),
+                    (void*)(bufferReceivedReversed + N + N * N +
+                        2 * receivedReversedVectorSize + sentToLeftOfVector),
                     sentReversedVectorSize * sizeof(int));
 
-            MPI_Isend(bufferSentReversed, bufferSentReversedSize, MPI_INT, getRank(row - 1, column),
+            MPI_Isend(bufferSentReversed, bufferSentReversedSize,
+                    MPI_INT, getRank(row - 1, column),
                     0, MPI_COMM_WORLD, &request);
         }
 
@@ -419,7 +429,7 @@ void ThreadFunction(unsigned int row, unsigned int column) {
         delete[] bufferSentReversed;
 //-----------------------------------------------------------------------------
     } else {
-        const unsigned int center = L / 2;
+        const unsigned int center = LH / 2;
         unsigned int switchCode;
         if (row < center) {
             // Receive direct = 1
@@ -445,9 +455,12 @@ void ThreadFunction(unsigned int row, unsigned int column) {
             switch (switcher % 10) {
                 case 3: // Send direct
                     {
-                        const unsigned int sentDirectSizeHs = getReceivedSizeInHs(DIRECT, row + 1, column);
-                        const unsigned int sentDirectVectorSize = getSizeFromHs(VECTOR, sentDirectSizeHs);
-                        const unsigned int sentDirectMatrixSize = getSizeFromHs(MATRIX, sentDirectSizeHs);
+                        const unsigned int sentDirectSizeHs =
+                            getReceivedSizeInHs(DIRECT, row + 1, column);
+                        const unsigned int sentDirectVectorSize =
+                            getSizeFromHs(VECTOR, sentDirectSizeHs);
+                        const unsigned int sentDirectMatrixSize =
+                            getSizeFromHs(MATRIX, sentDirectSizeHs);
                         const unsigned int bufferSentDirectSize =
                             1 +                    // e
                             sentDirectVectorSize + // C
@@ -493,11 +506,15 @@ void ThreadFunction(unsigned int row, unsigned int column) {
                         memcpy((void*)(bufferSentReversed + N + N * N),
                                 (void*)(bufferReceivedReversed + N + N * N),
                                 sentReversedVectorSize * sizeof(int));
-                        memcpy((void*)(bufferSentReversed + N + N * N + 1 * sentReversedVectorSize),
-                                (void*)(bufferReceivedReversed + N + N * N + 1 * receivedReversedVectorSize),
+                        memcpy((void*)(bufferSentReversed + N + N * N +
+                                    1 * sentReversedVectorSize),
+                                (void*)(bufferReceivedReversed + N + N * N +
+                                    1 * receivedReversedVectorSize),
                                 sentReversedVectorSize * sizeof(int));
-                        memcpy((void*)(bufferSentReversed + N + N * N + 2 * sentReversedVectorSize),
-                                (void*)(bufferReceivedReversed + N + N * N + 2 * receivedReversedVectorSize),
+                        memcpy((void*)(bufferSentReversed + N + N * N +
+                                    2 * sentReversedVectorSize),
+                                (void*)(bufferReceivedReversed + N + N * N +
+                                    2 * receivedReversedVectorSize),
                                 sentReversedVectorSize * sizeof(int));
 
                         MPI_Send(bufferSentReversed, bufferSentReversedSize,
@@ -572,7 +589,7 @@ void ThreadFunction(unsigned int row, unsigned int column) {
 //-----------------------------------------------------------------------------
     // 5. down wave for d
     // Receive
-    if (row <= L-2) {
+    if (row <= LH - 2) {
         int d_other;
         MPI_Recv(&d_other, 1,
                 MPI_INT, getRank(row + 1, column),
@@ -589,7 +606,7 @@ void ThreadFunction(unsigned int row, unsigned int column) {
 //-----------------------------------------------------------------------------
     // 6. left wave for d
     // Receive
-    if (row == 0 && column <= L-2) {
+    if (row == 0 && column <= LW - 2) {
         int d_other;
         MPI_Recv(&d_other, 1,
                 MPI_INT, getRank(row, column + 1),
@@ -615,7 +632,7 @@ void ThreadFunction(unsigned int row, unsigned int column) {
     }
 
     // Send
-    if (row == 0 && column <= L - 2) {
+    if (row == 0 && column <= LW - 2) {
         MPI_Send(&d, 1,
                 MPI_INT, getRank(row, column + 1),
                 0, MPI_COMM_WORLD);
@@ -632,7 +649,7 @@ void ThreadFunction(unsigned int row, unsigned int column) {
     }
 
     // Send
-    if (row <= L - 2) {
+    if (row <= LH - 2) {
         MPI_Send(&d, 1,
                 MPI_INT, getRank(row + 1, column),
                 0, MPI_COMM_WORLD);
@@ -659,7 +676,7 @@ void ThreadFunction(unsigned int row, unsigned int column) {
         memcpy((void*) buffer, A.getVoidPtr(), A.size * sizeof(int));
 
         // Receive
-        if (row <= L - 2) {
+        if (row <= LH - 2) {
             const unsigned int size = H * getReceivedSizeInHs(DIRECT, row + 1, column);
             MPI_Recv(buffer + A.size, size,
                     MPI_INT, getRank(row + 1, column),
@@ -677,9 +694,9 @@ void ThreadFunction(unsigned int row, unsigned int column) {
     // 11. A left
     if (row == 0) {
         // Receive
-        if (column <= L - 2) {
+        if (column <= LW - 2) {
             const unsigned int size = H * getReceivedSizeInHs(DIRECT, row, column + 1);
-            MPI_Recv(buffer + L * H, size,
+            MPI_Recv(buffer + LH * H, size,
                     MPI_INT, getRank(row, column + 1),
                     MPI_ANY_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
         }
@@ -712,8 +729,8 @@ int main() {
     MPI_Comm_size(MPI_COMM_WORLD, &size);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
-    const unsigned int row = rank / L;
-    const unsigned int column = rank % L;
+    const unsigned int row = rank / LW;
+    const unsigned int column = rank % LW;
 
     if (row == 0 && column == 0) {
         std::cout << ":> Started" << std::endl;
@@ -768,13 +785,13 @@ void outputMatrix(const Matrix& matrix) {
 unsigned int getReceivedSizeInHs(bool direct, unsigned int row, unsigned int column) {
     if (direct) {
         if (row == 0) {
-            return (L - column) * L;
+            return (LW - column) * LH;
         } else {
-            return (L - row);
+            return (LH - row);
         }
     } else {
-        if (row == L - 1) {
-            return (column + 1) * L;
+        if (row == LH - 1) {
+            return (column + 1) * LH;
         } else {
             return (row + 1);
         }
@@ -786,5 +803,5 @@ unsigned int getSizeFromHs(bool isVector, unsigned int sizeHs) {
 }
 
 unsigned int getRank(unsigned int row, unsigned int column) {
-    return row * L + column;
+    return row * LW + column;
 }

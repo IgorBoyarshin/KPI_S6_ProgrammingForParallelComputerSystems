@@ -8,4 +8,4 @@ gnatmake main -gnatl=lst.lst
 
 rm -f *.o
 rm -f *.ali
-rm -f main
+rm -f main && rm *.lst
